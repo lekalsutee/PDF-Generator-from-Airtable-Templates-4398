@@ -36,6 +36,7 @@ function Sidebar({ isOpen, onClose }) {
         transition={{ duration: 0.3, ease: 'easeInOut' }}
         className="fixed left-0 top-0 h-full w-64 bg-white shadow-2xl z-50 lg:translate-x-0 lg:static lg:z-auto"
       >
+        {/* Mobile Header */}
         <div className="p-6 border-b border-gray-200 lg:hidden">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
@@ -55,6 +56,7 @@ function Sidebar({ isOpen, onClose }) {
           </div>
         </div>
 
+        {/* Navigation */}
         <nav className="p-6 space-y-2">
           {/* Create New Template Button */}
           <NavLink
@@ -85,13 +87,14 @@ function Sidebar({ isOpen, onClose }) {
           ))}
         </nav>
 
+        {/* Footer */}
         <div className="absolute bottom-0 left-0 right-0 p-6 border-t border-gray-200">
           <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-xl">
-            <h3 className="font-semibold text-gray-900 mb-2">Security Features</h3>
+            <h3 className="font-semibold text-gray-900 mb-2">Features</h3>
             <div className="text-sm text-gray-600 space-y-1">
-              <p>• Encrypted credential storage</p>
-              <p>• Secure data transmission</p>
+              <p>• Direct link processing</p>
               <p>• Thai language support</p>
+              <p>• Mobile responsive</p>
             </div>
           </div>
         </div>

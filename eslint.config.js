@@ -34,6 +34,8 @@ export default [
       'react-refresh/only-export-components': 'off',
       'no-unused-vars': 'off',
       'no-case-declarations': 'off',
+      'quotes': ['error', 'single', { 'allowTemplateLiterals': true }],
+      'jsx-quotes': ['error', 'prefer-double'],
     },
   },
 ];

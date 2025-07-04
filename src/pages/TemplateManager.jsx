@@ -6,8 +6,9 @@ import * as FiIcons from 'react-icons/fi';
 import { useApp } from '../context/AppContext';
 import { useNavigate } from 'react-router-dom';
 import { templateService } from '../services/templateService';
+import { hasRealCredentials } from '../lib/supabase';
 
-const { FiPlus, FiEdit, FiTrash2, FiPlay, FiCopy, FiFolder, FiCalendar, FiUser } = FiIcons;
+const { FiPlus, FiEdit, FiTrash2, FiPlay, FiCopy, FiFolder, FiCalendar, FiUser, FiInfo } = FiIcons;
 
 function TemplateManager() {
   const { state, dispatch } = useApp();
@@ -71,13 +72,13 @@ function TemplateManager() {
     return new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
-      day: 'numeric'
+      day: 'numeric',
     });
   };
 
   if (state.isLoadingTemplates) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <div className="text-center">
           <div className="w-12 h-12 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-gray-600">Loading templates...</p>
@@ -87,24 +88,30 @@ function TemplateManager() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
-      <div className="max-w-7xl mx-auto space-y-8">
+    <div className="min-h-screen bg-gray-50 p-4 md:p-6 lg:p-8">
+      <div className="max-w-7xl mx-auto space-y-6 md:space-y-8">
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6 }}
-          className="flex items-center justify-between"
+          className="flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0"
         >
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Template Manager</h1>
+            <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Template Manager</h1>
             <p className="text-gray-600 mt-2">
               Create, edit, and manage your PDF document templates
             </p>
+            {!hasRealCredentials && (
+              <div className="mt-3 flex items-center space-x-2 text-sm text-blue-600">
+                <SafeIcon icon={FiInfo} className="w-4 h-4" />
+                <span>Demo mode - Templates will not persist after refresh</span>
+              </div>
+            )}
           </div>
           <button
             onClick={handleCreateNew}
-            className="flex items-center space-x-2 px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+            className="flex items-center justify-center space-x-2 px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors w-full md:w-auto"
           >
             <SafeIcon icon={FiPlus} className="w-5 h-5" />
             <span>Create New Template</span>
@@ -116,19 +123,35 @@ function TemplateManager() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.1 }}
-          className="grid grid-cols-1 md:grid-cols-4 gap-6"
+          className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6"
         >
           {[
             { label: 'Total Templates', value: state.templates.length, color: 'text-blue-600' },
-            { label: 'Active Templates', value: state.templates.filter(t => t.status === 'active').length, color: 'text-green-600' },
-            { label: 'Draft Templates', value: state.templates.filter(t => t.status === 'draft').length, color: 'text-yellow-600' },
-            { label: 'Recently Used', value: state.templates.filter(t => t.lastUsed && new Date(t.lastUsed) > new Date(Date.now() - 7*24*60*60*1000)).length, color: 'text-purple-600' }
+            {
+              label: 'Active Templates',
+              value: state.templates.filter((t) => t.status === 'active').length,
+              color: 'text-green-600',
+            },
+            {
+              label: 'Draft Templates',
+              value: state.templates.filter((t) => t.status === 'draft').length,
+              color: 'text-yellow-600',
+            },
+            {
+              label: 'Recently Used',
+              value: state.templates.filter(
+                (t) =>
+                  t.last_used &&
+                  new Date(t.last_used) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+              ).length,
+              color: 'text-purple-600',
+            },
           ].map((stat, index) => (
-            <div key={stat.label} className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+            <div key={stat.label} className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-gray-200">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-gray-600">{stat.label}</p>
-                  <p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p>
+                  <p className="text-xs md:text-sm font-medium text-gray-600">{stat.label}</p>
+                  <p className={`text-xl md:text-2xl font-bold ${stat.color}`}>{stat.value}</p>
                 </div>
               </div>
             </div>
@@ -141,13 +164,13 @@ function TemplateManager() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.2 }}
-            className="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center"
+            className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 md:p-12 text-center"
           >
-            <div className="bg-gray-100 p-4 rounded-full w-20 h-20 mx-auto mb-6 flex items-center justify-center">
-              <SafeIcon icon={FiFolder} className="w-10 h-10 text-gray-400" />
+            <div className="bg-gray-100 p-4 rounded-full w-16 h-16 md:w-20 md:h-20 mx-auto mb-6 flex items-center justify-center">
+              <SafeIcon icon={FiFolder} className="w-8 h-8 md:w-10 md:h-10 text-gray-400" />
             </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">No Templates Yet</h3>
-            <p className="text-gray-600 mb-6 max-w-md mx-auto">
+            <h3 className="text-lg md:text-xl font-semibold text-gray-900 mb-2">No Templates Yet</h3>
+            <p className="text-gray-600 mb-6 max-w-md mx-auto text-sm md:text-base">
               Get started by creating your first PDF template. Connect your Airtable data and design beautiful documents.
             </p>
             <button
@@ -163,7 +186,7 @@ function TemplateManager() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.2 }}
-            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+            className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6"
           >
             {state.templates.map((template, index) => (
               <motion.div
@@ -174,21 +197,23 @@ function TemplateManager() {
                 className="bg-white rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-all duration-200 overflow-hidden"
               >
                 {/* Template Header */}
-                <div className="p-6 border-b border-gray-100">
+                <div className="p-4 md:p-6 border-b border-gray-100">
                   <div className="flex items-start justify-between mb-3">
-                    <div className="flex-1">
-                      <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-lg font-semibold text-gray-900 mb-2 truncate">
                         {template.name}
                       </h3>
                       <p className="text-sm text-gray-600 line-clamp-2">
                         {template.description || 'No description provided'}
                       </p>
                     </div>
-                    <div className={`px-2 py-1 rounded-full text-xs font-medium ${
-                      template.status === 'active' 
-                        ? 'bg-green-100 text-green-700' 
-                        : 'bg-yellow-100 text-yellow-700'
-                    }`}>
+                    <div
+                      className={`px-2 py-1 rounded-full text-xs font-medium ml-2 flex-shrink-0 ${
+                        template.status === 'active'
+                          ? 'bg-green-100 text-green-700'
+                          : 'bg-yellow-100 text-yellow-700'
+                      }`}
+                    >
                       {template.status}
                     </div>
                   </div>
@@ -197,11 +222,16 @@ function TemplateManager() {
                   <div className="grid grid-cols-2 gap-4 text-sm text-gray-600">
                     <div className="flex items-center space-x-1">
                       <SafeIcon icon={FiCalendar} className="w-4 h-4" />
-                      <span>Created {formatDate(template.createdAt)}</span>
+                      <span className="truncate">Created {formatDate(template.created_at)}</span>
                     </div>
                     <div className="flex items-center space-x-1">
                       <SafeIcon icon={FiUser} className="w-4 h-4" />
-                      <span>{template.config?.mapping?.fieldMappings ? Object.keys(template.config.mapping.fieldMappings).length : 0} fields</span>
+                      <span>
+                        {template.config?.mapping?.fieldMappings
+                          ? Object.keys(template.config.mapping.fieldMappings).length
+                          : 0}{' '}
+                        fields
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -211,7 +241,7 @@ function TemplateManager() {
                   <div className="flex items-center space-x-2">
                     <button
                       onClick={() => handleUseTemplate(template)}
-                      className="flex-1 flex items-center justify-center space-x-2 px-3 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+                      className="flex-1 flex items-center justify-center space-x-2 px-3 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors text-sm"
                     >
                       <SafeIcon icon={FiPlay} className="w-4 h-4" />
                       <span>Use</span>
@@ -246,27 +276,27 @@ function TemplateManager() {
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
           >
             <motion.div
               initial={{ scale: 0.9 }}
               animate={{ scale: 1 }}
-              className="bg-white rounded-xl p-6 max-w-md mx-4"
+              className="bg-white rounded-xl p-6 max-w-md w-full mx-4"
             >
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Confirm Delete</h3>
               <p className="text-gray-600 mb-6">
                 Are you sure you want to delete this template? This action cannot be undone.
               </p>
-              <div className="flex items-center space-x-3">
+              <div className="flex flex-col sm:flex-row items-center space-y-2 sm:space-y-0 sm:space-x-3">
                 <button
                   onClick={() => setShowDeleteConfirm(null)}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="w-full sm:flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={() => handleDeleteTemplate(showDeleteConfirm)}
-                  className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                  className="w-full sm:flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
                 >
                   Delete
                 </button>

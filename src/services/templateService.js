@@ -1,158 +1,125 @@
 import { v4 as uuidv4 } from 'uuid';
-
-// Mock encryption for development
-const encrypt = (data) => btoa(JSON.stringify(data));
-const decrypt = (encryptedData) => {
-  try {
-    return JSON.parse(atob(encryptedData));
-  } catch {
-    return null;
-  }
-};
-
-// Mock storage for development
-let mockTemplates = [
-  {
-    id: '1',
-    name: 'Invoice Template',
-    description: 'Standard invoice template for customers',
-    config: {
-      connection: {
-        name: 'Invoice Template',
-        description: 'Standard invoice template',
-        airtableConfig: {
-          apiKey: '[ENCRYPTED]',
-          baseId: '[ENCRYPTED]',
-          tableName: 'Customers'
-        }
-      },
-      design: {
-        googleDocUrl: 'https://docs.google.com/document/d/sample-doc/edit',
-        templateFields: ['{{customer_name}}', '{{invoice_number}}', '{{total_amount}}']
-      },
-      mapping: {
-        fieldMappings: {
-          '{{customer_name}}': 'Name',
-          '{{invoice_number}}': 'Invoice Number',
-          '{{total_amount}}': 'Total'
-        }
-      },
-      advanced: {
-        lineItemConfig: {
-          enabled: false,
-          tableName: '',
-          fields: []
-        },
-        imageConfig: {
-          width: 200,
-          height: 'auto'
-        }
-      }
-    },
-    status: 'active',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    user_id: 'mock-user'
-  }
-];
+import { supabaseService } from './supabaseService';
+import { debugService } from './debugService';
 
 export class TemplateService {
+  constructor() {
+    this.supabaseService = supabaseService;
+  }
+
   async saveTemplate(templateData) {
     try {
-      const template = {
-        id: templateData.id || uuidv4(),
-        name: templateData.name,
-        description: templateData.description,
-        config: templateData.config,
-        encrypted_credentials: encrypt({
-          apiKey: templateData.config.connection.airtableConfig.apiKey,
-          baseId: templateData.config.connection.airtableConfig.baseId
-        }),
-        status: templateData.status || 'draft',
-        created_at: templateData.id ? mockTemplates.find(t => t.id === templateData.id)?.created_at || new Date().toISOString() : new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        user_id: 'mock-user'
-      };
+      debugService.log('info', 'template', 'Starting template save operation', {
+        templateId: templateData.id,
+        templateName: templateData.name
+      });
 
-      if (templateData.id) {
-        // Update existing
-        const index = mockTemplates.findIndex(t => t.id === templateData.id);
-        if (index !== -1) {
-          mockTemplates[index] = template;
-        } else {
-          mockTemplates.push(template);
-        }
-      } else {
-        // Create new
-        mockTemplates.push(template);
+      // Ensure template has an ID
+      if (!templateData.id) {
+        templateData.id = uuidv4();
       }
 
-      return template;
+      // Validate required fields
+      if (!templateData.name || !templateData.config) {
+        throw new Error('Template name and configuration are required');
+      }
+
+      // Save to Supabase
+      const savedTemplate = await this.supabaseService.saveTemplate(templateData);
+
+      // Log user activity
+      await this.supabaseService.logUserActivity('template_saved', {
+        templateId: savedTemplate.id,
+        templateName: savedTemplate.name,
+        action: templateData.id ? 'update' : 'create'
+      });
+
+      debugService.log('info', 'template', 'Template saved successfully', {
+        templateId: savedTemplate.id
+      });
+
+      return savedTemplate;
+
     } catch (error) {
-      console.error('Error saving template:', error);
+      debugService.log('error', 'template', 'Template save failed', {
+        error: error.message,
+        templateId: templateData.id
+      });
       throw error;
     }
   }
 
   async getTemplates() {
     try {
-      return mockTemplates.map(template => ({
-        ...template,
-        config: {
-          ...template.config,
-          connection: {
-            ...template.config.connection,
-            airtableConfig: {
-              ...template.config.connection.airtableConfig,
-              apiKey: '[ENCRYPTED]',
-              baseId: '[ENCRYPTED]'
-            }
-          }
-        }
-      }));
+      debugService.log('info', 'template', 'Fetching all templates');
+
+      const templates = await this.supabaseService.getTemplates();
+
+      debugService.log('info', 'template', 'Templates fetched successfully', {
+        count: templates.length
+      });
+
+      return templates;
+
     } catch (error) {
-      console.error('Error fetching templates:', error);
+      debugService.log('error', 'template', 'Template fetch failed', {
+        error: error.message
+      });
       throw error;
     }
   }
 
   async getTemplate(id) {
     try {
-      const template = mockTemplates.find(t => t.id === id);
-      if (!template) throw new Error('Template not found');
+      debugService.log('info', 'template', 'Fetching single template', { templateId: id });
 
-      const decryptedCredentials = decrypt(template.encrypted_credentials);
-      return {
-        ...template,
-        config: {
-          ...template.config,
-          connection: {
-            ...template.config.connection,
-            airtableConfig: {
-              ...template.config.connection.airtableConfig,
-              apiKey: decryptedCredentials?.apiKey || '',
-              baseId: decryptedCredentials?.baseId || ''
-            }
-          }
-        }
-      };
+      const template = await this.supabaseService.getTemplate(id);
+
+      debugService.log('info', 'template', 'Template fetched successfully', {
+        templateId: id
+      });
+
+      return template;
+
     } catch (error) {
-      console.error('Error fetching template:', error);
+      debugService.log('error', 'template', 'Single template fetch failed', {
+        templateId: id,
+        error: error.message
+      });
       throw error;
     }
   }
 
   async deleteTemplate(id) {
     try {
-      mockTemplates = mockTemplates.filter(t => t.id !== id);
+      debugService.log('info', 'template', 'Starting template deletion', { templateId: id });
+
+      await this.supabaseService.deleteTemplate(id);
+
+      // Log user activity
+      await this.supabaseService.logUserActivity('template_deleted', {
+        templateId: id
+      });
+
+      debugService.log('info', 'template', 'Template deleted successfully', {
+        templateId: id
+      });
+
     } catch (error) {
-      console.error('Error deleting template:', error);
+      debugService.log('error', 'template', 'Template deletion failed', {
+        templateId: id,
+        error: error.message
+      });
       throw error;
     }
   }
 
   async duplicateTemplate(template) {
     try {
+      debugService.log('info', 'template', 'Starting template duplication', {
+        originalId: template.id
+      });
+
       const duplicatedTemplate = {
         ...template,
         id: uuidv4(),
@@ -160,23 +127,121 @@ export class TemplateService {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
-      return await this.saveTemplate(duplicatedTemplate);
+
+      const savedTemplate = await this.saveTemplate(duplicatedTemplate);
+
+      debugService.log('info', 'template', 'Template duplicated successfully', {
+        originalId: template.id,
+        newId: savedTemplate.id
+      });
+
+      return savedTemplate;
+
     } catch (error) {
-      console.error('Error duplicating template:', error);
+      debugService.log('error', 'template', 'Template duplication failed', {
+        originalId: template.id,
+        error: error.message
+      });
       throw error;
     }
   }
 
   async updateTemplateUsage(id) {
     try {
-      const index = mockTemplates.findIndex(t => t.id === id);
-      if (index !== -1) {
-        mockTemplates[index].last_used = new Date().toISOString();
-        mockTemplates[index].usage_count = (mockTemplates[index].usage_count || 0) + 1;
-      }
+      debugService.log('info', 'template', 'Updating template usage', { templateId: id });
+
+      // Log user activity
+      await this.supabaseService.logUserActivity('template_used', {
+        templateId: id
+      });
+
+      debugService.log('info', 'template', 'Template usage updated', { templateId: id });
+
     } catch (error) {
-      console.error('Error updating template usage:', error);
+      debugService.log('error', 'template', 'Template usage update failed', {
+        templateId: id,
+        error: error.message
+      });
       throw error;
+    }
+  }
+
+  async saveUserConfiguration(config) {
+    try {
+      debugService.log('info', 'template', 'Saving user configuration');
+
+      const savedConfig = await this.supabaseService.saveUserConfig(config);
+
+      debugService.log('info', 'template', 'User configuration saved successfully');
+
+      return savedConfig;
+
+    } catch (error) {
+      debugService.log('error', 'template', 'User configuration save failed', {
+        error: error.message
+      });
+      throw error;
+    }
+  }
+
+  async getUserConfiguration() {
+    try {
+      debugService.log('info', 'template', 'Fetching user configuration');
+
+      const config = await this.supabaseService.getUserConfig();
+
+      debugService.log('info', 'template', 'User configuration fetched successfully');
+
+      return config;
+
+    } catch (error) {
+      debugService.log('error', 'template', 'User configuration fetch failed', {
+        error: error.message
+      });
+      return {};
+    }
+  }
+
+  async logPDFGeneration(generationData) {
+    try {
+      debugService.log('info', 'template', 'Logging PDF generation', {
+        templateId: generationData.templateId,
+        status: generationData.status
+      });
+
+      const logEntry = await this.supabaseService.savePDFGeneration(generationData);
+
+      debugService.log('info', 'template', 'PDF generation logged successfully');
+
+      return logEntry;
+
+    } catch (error) {
+      debugService.log('error', 'template', 'PDF generation logging failed', {
+        error: error.message
+      });
+      throw error;
+    }
+  }
+
+  async getAnalytics() {
+    try {
+      debugService.log('info', 'template', 'Fetching analytics data');
+
+      const analytics = await this.supabaseService.getAnalytics();
+
+      debugService.log('info', 'template', 'Analytics data fetched successfully', analytics);
+
+      return analytics;
+
+    } catch (error) {
+      debugService.log('error', 'template', 'Analytics fetch failed', {
+        error: error.message
+      });
+      return {
+        templateCount: 0,
+        pdfCount: 0,
+        recentActivity: []
+      };
     }
   }
 }
@@ -190,38 +255,10 @@ export const fetchGoogleDocContent = async (docUrl) => {
     throw new Error('Invalid Google Docs URL');
   }
 
-  const mockContent = `
-    <div style="font-family: Arial, sans-serif; padding: 20px;">
-      <h1>Invoice Template</h1>
-      <p>Customer: {{customer_name}}</p>
-      <p>Invoice Number: {{invoice_number}}</p>
-      <p>Date: {{invoice_date}}</p>
-      <p>Due Date: {{due_date}}</p>
-      
-      <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
-        <thead>
-          <tr style="background-color: #f5f5f5;">
-            <th style="border: 1px solid #ddd; padding: 8px;">Item</th>
-            <th style="border: 1px solid #ddd; padding: 8px;">Quantity</th>
-            <th style="border: 1px solid #ddd; padding: 8px;">Price</th>
-            <th style="border: 1px solid #ddd; padding: 8px;">Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td style="border: 1px solid #ddd; padding: 8px;">{{item_name}}</td>
-            <td style="border: 1px solid #ddd; padding: 8px;">{{item_quantity}}</td>
-            <td style="border: 1px solid #ddd; padding: 8px;">{{item_price}}</td>
-            <td style="border: 1px solid #ddd; padding: 8px;">{{item_total}}</td>
-          </tr>
-        </tbody>
-      </table>
-      
-      <p><strong>Total Amount: {{total_amount}}</strong></p>
-    </div>
-  `;
-
-  return mockContent;
+  // This will now use the real Google Docs service
+  const { enhancedGoogleDocsService } = await import('./enhancedGoogleDocsService');
+  const content = await enhancedGoogleDocsService.fetchDocumentContent(docId);
+  return content;
 };
 
 const extractDocId = (url) => {

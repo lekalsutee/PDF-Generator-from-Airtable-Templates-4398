@@ -1,86 +1,81 @@
 import { debugService } from './debugService';
 
-// Enhanced Google Docs parsing service with real API integration
+// Enhanced Google Docs parsing service with improved placeholder detection
 export class EnhancedGoogleDocsService {
   constructor() {
+    // ✅ SIMPLIFIED and MORE ROBUST placeholder patterns
     this.placeholderPatterns = [
-      /\{\{([^}]+)\}\}/g,  // Standard: {{field_name}}
-      /\{([^}]+)\}/g,      // Alternative: {field_name}
-      /\[\[([^\]]+)\]\]/g, // Alternative: [[field_name]]
-      /\$\{([^}]+)\}/g     // Alternative: ${field_name}
+      // Primary pattern - most permissive
+      /\{\{\s*([^}]+?)\s*\}\}/g,
+      // Backup patterns for edge cases
+      /\{\{([^}]*)\}\}/g,
+      /{{([^}]+)}}/g
     ];
   }
 
   async parseGoogleDocTemplate(docUrl, options = {}) {
-    const { enableDebugging = true, timeout = 30000, validatePlaceholders = true } = options;
-    
-    debugService.log('info', 'googledocs', 'Starting Google Docs parsing', {
+    const { enableDebugging = true, timeout = 30000, validatePlaceholders = true, method = 'direct-link' } = options;
+
+    debugService.log('info', 'googledocs', '🔍 Starting Google Docs parsing', {
       url: docUrl,
-      timeout,
-      validatePlaceholders
+      method
     });
 
     try {
-      // Validate URL format
-      const urlValidation = this.validateGoogleDocsUrl(docUrl);
-      if (!urlValidation.valid) {
-        debugService.log('error', 'googledocs', 'Invalid Google Docs URL', {
-          url: docUrl,
-          errors: urlValidation.errors
-        });
-        throw new Error(`Invalid URL: ${urlValidation.errors.join(', ')}`);
-      }
-
+      // Extract document ID
       const docId = this.extractDocId(docUrl);
-      debugService.log('debug', 'googledocs', 'Extracted document ID', { docId });
-
-      // Fetch document content
-      const content = await this.fetchDocumentContent(docId, timeout);
-      debugService.log('debug', 'googledocs', 'Document content fetched', {
-        contentLength: content.length,
-        contentPreview: content.substring(0, 200) + '...'
-      });
-
-      // Parse placeholders
-      const placeholders = this.extractPlaceholders(content);
-      debugService.log('info', 'googledocs', 'Placeholders extracted', {
-        count: placeholders.length,
-        placeholders: placeholders
-      });
-
-      // Validate placeholders if requested
-      if (validatePlaceholders) {
-        const validation = this.validatePlaceholders(placeholders);
-        debugService.log('info', 'googledocs', 'Placeholder validation completed', validation);
-        
-        if (validation.warnings.length > 0) {
-          debugService.log('warn', 'googledocs', 'Placeholder validation warnings', {
-            warnings: validation.warnings
-          });
-        }
+      if (!docId) {
+        throw new Error('Could not extract document ID from URL');
       }
+
+      debugService.log('info', 'googledocs', '📄 Document ID extracted', { docId });
+
+      // Fetch document content with multiple methods
+      const content = await this.fetchDocumentContent(docId, timeout);
+      
+      debugService.log('info', 'googledocs', '📥 Document content fetched', {
+        contentLength: content.length,
+        hasContent: content.length > 0,
+        contentStart: content.substring(0, 300)
+      });
+
+      // ✅ ROBUST placeholder extraction
+      const placeholders = this.extractPlaceholders(content);
+      
+      debugService.log('info', 'googledocs', '🎯 Placeholders extracted', {
+        count: placeholders.length,
+        placeholders: placeholders,
+        rawExtractionTest: this.debugPlaceholderExtraction(content)
+      });
 
       // Analyze document structure
       const structure = this.analyzeDocumentStructure(content);
-      debugService.log('debug', 'googledocs', 'Document structure analyzed', structure);
 
       const result = {
         docId,
         url: docUrl,
-        placeholders: placeholders,
+        content,
+        placeholders, // ✅ Return extracted placeholders
         structure,
         metadata: {
           parsedAt: new Date().toISOString(),
           contentLength: content.length,
-          placeholderCount: placeholders.length
+          placeholderCount: placeholders.length,
+          method: method,
+          extractionMethod: 'enhanced'
         }
       };
 
-      debugService.log('info', 'googledocs', 'Google Docs parsing completed successfully', result);
+      debugService.log('info', 'googledocs', '✅ Parsing completed successfully', {
+        docId,
+        placeholderCount: placeholders.length,
+        success: true
+      });
+
       return result;
 
     } catch (error) {
-      debugService.log('error', 'googledocs', 'Google Docs parsing failed', {
+      debugService.log('error', 'googledocs', '❌ Parsing failed', {
         error: error.message,
         stack: error.stack,
         url: docUrl
@@ -89,47 +84,215 @@ export class EnhancedGoogleDocsService {
     }
   }
 
-  validateGoogleDocsUrl(url) {
-    const errors = [];
+  // ✅ SIMPLIFIED and MORE ROBUST placeholder extraction
+  extractPlaceholders(content) {
+    debugService.log('debug', 'googledocs', '🔍 Starting placeholder extraction', {
+      contentLength: content.length,
+      contentSample: content.substring(0, 500)
+    });
 
-    if (!url || typeof url !== 'string') {
-      errors.push('URL is required and must be a string');
-      return { valid: false, errors };
+    const allPlaceholders = new Set();
+    let totalMatches = 0;
+
+    // Try each pattern
+    this.placeholderPatterns.forEach((pattern, index) => {
+      pattern.lastIndex = 0; // Reset regex
+      let match;
+      const patternMatches = [];
+
+      while ((match = pattern.exec(content)) !== null) {
+        const rawPlaceholder = match[1];
+        if (rawPlaceholder) {
+          const cleanPlaceholder = this.cleanPlaceholder(rawPlaceholder);
+          if (cleanPlaceholder && this.isValidPlaceholder(cleanPlaceholder)) {
+            patternMatches.push(cleanPlaceholder);
+            allPlaceholders.add(cleanPlaceholder);
+            totalMatches++;
+          }
+        }
+      }
+
+      debugService.log('debug', 'googledocs', `Pattern ${index + 1} results`, {
+        pattern: pattern.source,
+        matches: patternMatches,
+        count: patternMatches.length
+      });
+    });
+
+    const finalPlaceholders = Array.from(allPlaceholders).sort();
+
+    debugService.log('info', 'googledocs', '✅ Placeholder extraction completed', {
+      totalMatches,
+      uniquePlaceholders: finalPlaceholders.length,
+      placeholders: finalPlaceholders
+    });
+
+    return finalPlaceholders;
+  }
+
+  // ✅ DEBUG helper to see what's actually in the content
+  debugPlaceholderExtraction(content) {
+    const testPatterns = [
+      /\{\{[^}]+\}\}/g,
+      /{[^}]+}/g,
+      /{{.*?}}/g,
+      /\{\{.*?\}\}/g
+    ];
+
+    const results = {};
+    testPatterns.forEach((pattern, i) => {
+      pattern.lastIndex = 0;
+      const matches = content.match(pattern) || [];
+      results[`pattern_${i}`] = {
+        pattern: pattern.source,
+        matches: matches.slice(0, 10), // First 10 matches
+        count: matches.length
+      };
+    });
+
+    // Also check for any text that looks like placeholders
+    const suspiciousText = content.match(/\{[^}]*\}/g) || [];
+    results.suspicious_braces = suspiciousText.slice(0, 20);
+
+    return results;
+  }
+
+  cleanPlaceholder(rawPlaceholder) {
+    if (!rawPlaceholder || typeof rawPlaceholder !== 'string') return null;
+
+    // Remove extra whitespace and clean up
+    let cleaned = rawPlaceholder.trim();
+    
+    // Remove any HTML tags that might be embedded
+    cleaned = cleaned.replace(/<[^>]*>/g, '');
+    
+    // Remove any non-printable characters
+    cleaned = cleaned.replace(/[\x00-\x1F\x7F-\x9F]/g, '');
+    
+    // Remove extra spaces
+    cleaned = cleaned.replace(/\s+/g, ' ').trim();
+
+    return cleaned;
+  }
+
+  isValidPlaceholder(placeholder) {
+    if (!placeholder || typeof placeholder !== 'string') return false;
+    
+    // Must not be empty
+    if (placeholder.trim().length === 0) return false;
+    
+    // Must not be just numbers
+    if (/^\d+$/.test(placeholder)) return false;
+    
+    // Must not be just spaces or special characters
+    if (/^[\s\W]+$/.test(placeholder)) return false;
+    
+    // Should have at least some alphanumeric content
+    if (!/[a-zA-Z0-9]/.test(placeholder)) return false;
+
+    // Length check
+    if (placeholder.length > 100) return false;
+
+    return true;
+  }
+
+  async fetchDocumentContent(docId, timeout = 30000) {
+    debugService.log('info', 'googledocs', '📥 Fetching document content', { docId });
+
+    const fetchMethods = [
+      {
+        name: 'HTML Export',
+        url: `https://docs.google.com/document/d/${docId}/export?format=html`,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+      },
+      {
+        name: 'Published HTML',
+        url: `https://docs.google.com/document/d/${docId}/pub`,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+      },
+      {
+        name: 'Edit View (if public)',
+        url: `https://docs.google.com/document/d/${docId}/edit?usp=sharing`,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; GoogleBot/2.1; +http://www.google.com/bot.html)'
+        }
+      },
+      {
+        name: 'Plain Text Export',
+        url: `https://docs.google.com/document/d/${docId}/export?format=txt`,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+      }
+    ];
+
+    for (const method of fetchMethods) {
+      try {
+        debugService.log('debug', 'googledocs', `🔄 Trying ${method.name}`, { url: method.url });
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+        const response = await fetch(method.url, {
+          method: 'GET',
+          signal: controller.signal,
+          headers: {
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache',
+            ...method.headers
+          },
+          mode: 'cors'
+        });
+
+        clearTimeout(timeoutId);
+
+        debugService.log('debug', 'googledocs', `📊 Response from ${method.name}`, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: Object.fromEntries(response.headers.entries())
+        });
+
+        if (response.ok) {
+          const content = await response.text();
+          
+          debugService.log('info', 'googledocs', `✅ Content fetched via ${method.name}`, {
+            contentLength: content.length,
+            hasPlaceholderPattern: /\{\{/.test(content),
+            sampleContent: content.substring(0, 500)
+          });
+
+          if (content && content.length > 100) {
+            return content;
+          }
+        }
+
+      } catch (error) {
+        debugService.log('warn', 'googledocs', `⚠️ ${method.name} failed`, {
+          error: error.message,
+          isTimeout: error.name === 'AbortError'
+        });
+        continue;
+      }
     }
 
-    // Check if it's a Google Docs URL
-    if (!url.includes('docs.google.com')) {
-      errors.push('URL must be a Google Docs URL (docs.google.com)');
-    }
-
-    // Check if it contains a document ID
-    if (!url.includes('/document/d/')) {
-      errors.push('URL must contain a document ID (/document/d/)');
-    }
-
-    // Check document ID format
-    const docId = this.extractDocId(url);
-    if (!docId) {
-      errors.push('Could not extract document ID from URL');
-    } else if (docId.length < 20) {
-      errors.push('Document ID appears to be too short');
-    }
-
-    return {
-      valid: errors.length === 0,
-      errors,
-      docId
-    };
+    throw new Error('Unable to fetch document content from any source. Please ensure the document is publicly accessible.');
   }
 
   extractDocId(url) {
-    const matches = [
+    const patterns = [
       /\/document\/d\/([a-zA-Z0-9-_]+)/,
       /\/document\/d\/([^/]+)/,
       /id=([a-zA-Z0-9-_]+)/
     ];
 
-    for (const pattern of matches) {
+    for (const pattern of patterns) {
       const match = url.match(pattern);
       if (match) {
         return match[1];
@@ -139,263 +302,65 @@ export class EnhancedGoogleDocsService {
     return null;
   }
 
-  async fetchDocumentContent(docId, timeout = 30000) {
-    debugService.log('debug', 'googledocs', 'Fetching document content', { docId, timeout });
-
-    try {
-      // Try multiple export formats to get the content
-      const exportUrls = [
-        `https://docs.google.com/document/d/${docId}/export?format=txt`,
-        `https://docs.google.com/document/d/${docId}/export?format=html`,
-        `https://docs.google.com/document/d/${docId}/pub`
-      ];
-
-      let content = null;
-      let lastError = null;
-
-      for (const url of exportUrls) {
-        try {
-          debugService.log('debug', 'googledocs', `Attempting to fetch from: ${url}`);
-          
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), timeout);
-
-          const response = await fetch(url, {
-            method: 'GET',
-            signal: controller.signal,
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (compatible; PDF Generator)'
-            }
-          });
-
-          clearTimeout(timeoutId);
-
-          if (response.ok) {
-            content = await response.text();
-            debugService.log('debug', 'googledocs', 'Content fetched successfully', {
-              url,
-              contentLength: content.length
-            });
-            break;
-          } else {
-            lastError = new Error(`HTTP ${response.status}: ${response.statusText}`);
-            debugService.log('warn', 'googledocs', `Failed to fetch from ${url}`, {
-              status: response.status,
-              statusText: response.statusText
-            });
-          }
-
-        } catch (error) {
-          lastError = error;
-          if (error.name === 'AbortError') {
-            debugService.log('warn', 'googledocs', `Timeout fetching from ${url}`);
-          } else {
-            debugService.log('warn', 'googledocs', `Error fetching from ${url}`, {
-              error: error.message
-            });
-          }
-        }
-      }
-
-      if (!content) {
-        throw new Error(`Unable to fetch document content. Last error: ${lastError?.message || 'Unknown error'}. Please ensure the document is publicly accessible or shared with view permissions.`);
-      }
-
-      return content;
-
-    } catch (error) {
-      debugService.log('error', 'googledocs', 'Failed to fetch document content', {
-        docId,
-        error: error.message
-      });
-      throw error;
-    }
-  }
-
-  extractPlaceholders(content) {
-    debugService.log('debug', 'googledocs', 'Extracting placeholders from content');
-
-    const allPlaceholders = new Set();
-    const patternResults = {};
-
-    this.placeholderPatterns.forEach((pattern, index) => {
-      const matches = [];
-      let match;
-      
-      // Reset regex lastIndex to ensure we get all matches
-      pattern.lastIndex = 0;
-      
-      while ((match = pattern.exec(content)) !== null) {
-        const placeholder = match[1].trim();
-        if (placeholder) {
-          matches.push(placeholder);
-          allPlaceholders.add(placeholder);
-        }
-      }
-
-      patternResults[`pattern_${index}`] = {
-        pattern: pattern.source,
-        matches: matches,
-        count: matches.length
-      };
-    });
-
-    const uniquePlaceholders = Array.from(allPlaceholders).sort();
-
-    debugService.log('debug', 'googledocs', 'Placeholder extraction completed', {
-      totalUnique: uniquePlaceholders.length,
-      patternResults,
-      placeholders: uniquePlaceholders
-    });
-
-    return uniquePlaceholders;
-  }
-
-  validatePlaceholders(placeholders) {
-    debugService.log('debug', 'googledocs', 'Validating placeholders', { count: placeholders.length });
-
-    const warnings = [];
-    const errors = [];
-    const suggestions = [];
-
-    placeholders.forEach(placeholder => {
-      // Check for common naming issues
-      if (placeholder.includes(' ')) {
-        warnings.push(`Placeholder "${placeholder}" contains spaces - consider using underscores`);
-        suggestions.push({
-          original: placeholder,
-          suggested: placeholder.replace(/\s+/g, '_').toLowerCase()
-        });
-      }
-
-      if (placeholder !== placeholder.toLowerCase()) {
-        warnings.push(`Placeholder "${placeholder}" contains uppercase - consider lowercase`);
-        suggestions.push({
-          original: placeholder,
-          suggested: placeholder.toLowerCase()
-        });
-      }
-
-      if (placeholder.length > 50) {
-        warnings.push(`Placeholder "${placeholder}" is very long (${placeholder.length} chars)`);
-      }
-
-      if (placeholder.length < 2) {
-        errors.push(`Placeholder "${placeholder}" is too short`);
-      }
-
-      // Check for special characters that might cause issues
-      if (/[^\w_-]/.test(placeholder)) {
-        warnings.push(`Placeholder "${placeholder}" contains special characters`);
-      }
-    });
-
-    const result = {
-      valid: errors.length === 0,
-      warnings,
-      errors,
-      suggestions,
-      stats: {
-        total: placeholders.length,
-        withSpaces: placeholders.filter(p => p.includes(' ')).length,
-        withUppercase: placeholders.filter(p => p !== p.toLowerCase()).length,
-        tooLong: placeholders.filter(p => p.length > 50).length
-      }
-    };
-
-    debugService.log('debug', 'googledocs', 'Placeholder validation completed', result);
-    return result;
-  }
-
   analyzeDocumentStructure(content) {
-    debugService.log('debug', 'googledocs', 'Analyzing document structure');
-
     const structure = {
-      hasHeaders: false,
-      hasTables: false,
-      hasStyles: false,
-      hasImages: false,
-      estimatedSections: 0,
-      language: 'en',
-      encoding: 'utf-8'
+      hasHeaders: /(<h[1-6]|<div[^>]*heading|<p[^>]*heading)/i.test(content),
+      hasTables: /(<table|<tbody|<td)/i.test(content),
+      hasStyles: /(<style|class=|style=)/i.test(content),
+      hasImages: /(<img|image)/i.test(content),
+      hasLineItems: /\{\{\s*line_?items?\s*\}\}/i.test(content),
+      estimatedSections: (content.match(/<div|<p|<h[1-6]/gi) || []).length,
+      language: /[\u0E00-\u0E7F]/.test(content) ? 'th' : 'en',
+      encoding: 'utf-8',
+      complexity: 'simple'
     };
 
-    // Check for headers
-    if (content.includes('<h1>') || content.includes('<h2>') || content.includes('<h3>')) {
-      structure.hasHeaders = true;
-    }
+    // Determine complexity
+    let complexityScore = 0;
+    if (structure.hasHeaders) complexityScore++;
+    if (structure.hasTables) complexityScore++;
+    if (structure.hasStyles) complexityScore++;
+    if (structure.hasImages) complexityScore++;
+    if (structure.hasLineItems) complexityScore++;
 
-    // Check for tables
-    if (content.includes('<table>') || content.includes('<tbody>') || content.includes('<td>')) {
-      structure.hasTables = true;
-    }
+    if (complexityScore >= 4) structure.complexity = 'complex';
+    else if (complexityScore >= 2) structure.complexity = 'moderate';
 
-    // Check for styles
-    if (content.includes('<style>') || content.includes('class=') || content.includes('style=')) {
-      structure.hasStyles = true;
-    }
-
-    // Check for images
-    if (content.includes('<img>') || content.includes('image')) {
-      structure.hasImages = true;
-    }
-
-    // Estimate sections
-    const sectionIndicators = content.match(/<div|<p|<h[1-6]>/g);
-    structure.estimatedSections = sectionIndicators ? sectionIndicators.length : 0;
-
-    // Check for Thai characters
-    if (/[\u0E00-\u0E7F]/.test(content)) {
-      structure.language = 'th';
-    }
-
-    debugService.log('debug', 'googledocs', 'Document structure analysis completed', structure);
     return structure;
   }
 
-  async validateDocumentAccess(docUrl) {
-    debugService.log('info', 'googledocs', 'Validating document access', { url: docUrl });
+  validateGoogleDocsUrl(url) {
+    const errors = [];
 
-    try {
-      const docId = this.extractDocId(docUrl);
-      if (!docId) {
-        throw new Error('Could not extract document ID');
-      }
-
-      // Try to access the document
-      const testUrl = `https://docs.google.com/document/d/${docId}/pub`;
-      
-      const response = await fetch(testUrl, {
-        method: 'HEAD',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; PDF Generator)'
-        }
-      });
-
-      const accessInfo = {
-        accessible: response.ok,
-        permissionLevel: response.ok ? 'view' : 'restricted',
-        isPublic: response.ok,
-        requiresAuth: !response.ok,
-        lastModified: response.headers.get('last-modified') || new Date().toISOString()
-      };
-
-      debugService.log('info', 'googledocs', 'Document access validated', accessInfo);
-      return accessInfo;
-
-    } catch (error) {
-      debugService.log('error', 'googledocs', 'Document access validation failed', {
-        error: error.message,
-        url: docUrl
-      });
-      throw error;
+    if (!url || typeof url !== 'string') {
+      errors.push('URL is required');
+      return { valid: false, errors };
     }
+
+    if (!url.includes('docs.google.com')) {
+      errors.push('Must be a Google Docs URL');
+    }
+
+    if (!url.includes('/document/d/')) {
+      errors.push('Must contain a document ID');
+    }
+
+    const docId = this.extractDocId(url);
+    if (!docId) {
+      errors.push('Could not extract document ID');
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+      docId
+    };
   }
 }
 
 export const enhancedGoogleDocsService = new EnhancedGoogleDocsService();
 
-// Legacy compatibility export
-export const parseGoogleDocTemplate = (docUrl, options) => 
+// Legacy compatibility
+export const parseGoogleDocTemplate = (docUrl, options) =>
   enhancedGoogleDocsService.parseGoogleDocTemplate(docUrl, options)
-    .then(result => result.placeholders); // Return just placeholders for compatibility
+    .then(result => result.placeholders);
