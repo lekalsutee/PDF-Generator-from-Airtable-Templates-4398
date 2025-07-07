@@ -10,8 +10,8 @@ export class RobustGoogleDocsService {
       // Alternative bracket patterns
       /\[\[\s*([^\]]+?)\s*\]\]/g,
       /\[\[([^\]]*)\]\]/g,
-      // Encoded patterns (HTML entities)
-      /&\#123;&\#123;\s*([^&]+?)\s*&\#125;&\#125;/g,
+      // Encoded patterns (HTML entities) - fixed escaping
+      /&#123;&#123;\s*([^&]+?)\s*&#125;&#125;/g,
       /&#x7B;&#x7B;\s*([^&]+?)\s*&#x7D;&#x7D;/g,
       // Unicode patterns
       /\u007B\u007B\s*([^\u007D]+?)\s*\u007D\u007D/g,

@@ -166,7 +166,7 @@ export class EnhancedGoogleDocsService {
     // Remove any HTML tags that might be embedded
     cleaned = cleaned.replace(/<[^>]*>/g, '');
     
-    // Remove any non-printable characters
+    // Remove any non-printable characters (fix the regex)
     cleaned = cleaned.replace(/[\x00-\x1F\x7F-\x9F]/g, '');
     
     // Remove extra spaces

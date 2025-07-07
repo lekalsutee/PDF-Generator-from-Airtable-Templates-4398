@@ -2,6 +2,7 @@ import { googleDocsApiService } from './googleDocsApiService';
 import { backendCopyService } from './backendCopyService';
 import { debugService } from './debugService';
 import { templateService } from './templateService';
+import { dynamicFilenameService } from './dynamicFilenameService';
 
 export class EnhancedPdfService {
   constructor() {
@@ -31,20 +32,26 @@ export class EnhancedPdfService {
 
       // Determine the best access method
       const accessMethod = await this.determineAccessMethod(options.googleDocUrl);
-      
       debugService.log('info', 'pdf', 'Access method determined', { accessMethod });
 
       let pdfBlob;
+      let filename;
 
       switch (accessMethod) {
         case 'google-api':
-          pdfBlob = await this.generateViaGoogleApi(options);
+          const googleApiResult = await this.generateViaGoogleApi(options);
+          pdfBlob = googleApiResult.blob;
+          filename = googleApiResult.filename;
           break;
         case 'backend-copy':
-          pdfBlob = await this.generateViaBackendCopy(options);
+          const backendResult = await this.generateViaBackendCopy(options);
+          pdfBlob = backendResult.blob;
+          filename = backendResult.filename;
           break;
         case 'fallback':
-          pdfBlob = await this.generateViaFallback(options);
+          const fallbackResult = await this.generateViaFallback(options);
+          pdfBlob = fallbackResult.blob;
+          filename = fallbackResult.filename;
           break;
         default:
           throw new Error('No suitable access method available');
@@ -59,7 +66,8 @@ export class EnhancedPdfService {
         status: 'completed',
         generationTime,
         fileSize,
-        method: accessMethod
+        method: accessMethod,
+        filename
       };
 
       // Log successful generation
@@ -69,10 +77,11 @@ export class EnhancedPdfService {
         templateId: options.templateId,
         accessMethod,
         generationTime,
-        fileSize
+        fileSize,
+        filename
       });
 
-      return pdfBlob;
+      return { blob: pdfBlob, filename };
 
     } catch (error) {
       const generationTime = Date.now() - startTime;
@@ -95,13 +104,131 @@ export class EnhancedPdfService {
     }
   }
 
+  async generateViaGoogleApi(options) {
+    try {
+      debugService.log('info', 'pdf', 'Generating PDF via Google API method');
+      
+      const { record, fieldMappings, lineItemConfig, googleDocUrl, filenameConfig, templateInfo } = options;
+
+      // Initialize and authenticate
+      await googleDocsApiService.initialize();
+      await googleDocsApiService.authenticate();
+
+      // Extract document ID and create copy
+      const templateDocId = googleDocsApiService.extractDocumentId(googleDocUrl);
+      const copyTitle = `PDF_${record.id}_${Date.now()}`;
+      const tempDocId = await googleDocsApiService.createDocumentCopy(templateDocId, copyTitle);
+      this.tempDocuments.add(tempDocId);
+
+      // Populate with data
+      await googleDocsApiService.populateDocument(
+        tempDocId,
+        fieldMappings,
+        record,
+        lineItemConfig
+      );
+
+      // Export to PDF
+      const pdfBlob = await googleDocsApiService.exportToPDF(tempDocId);
+
+      // Generate dynamic filename
+      const filename = dynamicFilenameService.generateFilename(
+        filenameConfig || { template: 'Document-{{record_id}}', useTimestamp: true, extension: '.pdf' },
+        record,
+        templateInfo
+      );
+
+      // Cleanup
+      await googleDocsApiService.deleteDocument(tempDocId);
+      this.tempDocuments.delete(tempDocId);
+
+      debugService.log('info', 'pdf', 'Google API generation completed successfully', { filename });
+      return { blob: pdfBlob, filename };
+
+    } catch (error) {
+      debugService.log('error', 'pdf', 'Google API generation failed', { error: error.message });
+      throw error;
+    }
+  }
+
+  async generateViaBackendCopy(options) {
+    try {
+      debugService.log('info', 'pdf', 'Generating PDF via backend copy method');
+      
+      const { record, fieldMappings, lineItemConfig, googleDocUrl, filenameConfig, templateInfo } = options;
+
+      // Step 1: Create backend copy from public link
+      debugService.log('info', 'pdf', 'Creating backend copy from public link');
+      const copyResult = await backendCopyService.createBackendCopy(googleDocUrl);
+      this.backendCopies.add(copyResult.backendCopyId);
+
+      // Step 2: Populate the backend copy with Airtable data
+      debugService.log('info', 'pdf', 'Populating backend copy with data');
+      await this.populateBackendCopy(
+        copyResult.backendCopyId,
+        fieldMappings,
+        record,
+        lineItemConfig
+      );
+
+      // Step 3: Generate PDF from populated copy
+      debugService.log('info', 'pdf', 'Generating PDF from populated backend copy');
+      const pdfBlob = await this.exportBackendCopyToPdf(copyResult.backendCopyId);
+
+      // Generate dynamic filename
+      const filename = dynamicFilenameService.generateFilename(
+        filenameConfig || { template: 'Document-{{record_id}}', useTimestamp: true, extension: '.pdf' },
+        record,
+        templateInfo
+      );
+
+      // Step 4: Cleanup backend copy
+      debugService.log('info', 'pdf', 'Cleaning up backend copy');
+      await backendCopyService.cleanupBackendCopy(copyResult.backendCopyId);
+      this.backendCopies.delete(copyResult.backendCopyId);
+
+      debugService.log('info', 'pdf', 'Backend copy generation completed successfully', { filename });
+      return { blob: pdfBlob, filename };
+
+    } catch (error) {
+      debugService.log('error', 'pdf', 'Backend copy generation failed', { error: error.message });
+      throw error;
+    }
+  }
+
+  async generateViaFallback(options) {
+    try {
+      debugService.log('info', 'pdf', 'Generating PDF via fallback method');
+      
+      const { record, filenameConfig, templateInfo } = options;
+
+      // Use the existing PDF service as fallback
+      const { generatePDF } = await import('./pdfService');
+      const pdfBlob = await generatePDF(options);
+
+      // Generate dynamic filename
+      const filename = dynamicFilenameService.generateFilename(
+        filenameConfig || { template: 'Document-{{record_id}}', useTimestamp: true, extension: '.pdf' },
+        record,
+        templateInfo
+      );
+
+      debugService.log('info', 'pdf', 'Fallback generation completed successfully', { filename });
+      return { blob: pdfBlob, filename };
+
+    } catch (error) {
+      debugService.log('error', 'pdf', 'Fallback generation failed', { error: error.message });
+      throw error;
+    }
+  }
+
   async determineAccessMethod(googleDocUrl) {
     try {
       debugService.log('debug', 'pdf', 'Determining best access method', { url: googleDocUrl });
 
       // Check if Google APIs are available and user is authenticated
       const googleApiAvailable = await this.isGoogleApiAvailable();
-      
+
       // Check if it's a public/shareable link
       const isPublicLink = backendCopyService.validatePublicUrl(googleDocUrl);
 
@@ -119,104 +246,8 @@ export class EnhancedPdfService {
       return 'fallback';
 
     } catch (error) {
-      debugService.log('error', 'pdf', 'Access method determination failed', {
-        error: error.message
-      });
+      debugService.log('error', 'pdf', 'Access method determination failed', { error: error.message });
       return 'fallback';
-    }
-  }
-
-  async generateViaGoogleApi(options) {
-    try {
-      debugService.log('info', 'pdf', 'Generating PDF via Google API method');
-
-      const {
-        record,
-        fieldMappings,
-        lineItemConfig,
-        googleDocUrl
-      } = options;
-
-      // Initialize and authenticate
-      await googleDocsApiService.initialize();
-      await googleDocsApiService.authenticate();
-
-      // Extract document ID and create copy
-      const templateDocId = googleDocsApiService.extractDocumentId(googleDocUrl);
-      const copyTitle = `PDF_${record.id}_${Date.now()}`;
-      const tempDocId = await googleDocsApiService.createDocumentCopy(templateDocId, copyTitle);
-      
-      this.tempDocuments.add(tempDocId);
-
-      // Populate with data
-      await googleDocsApiService.populateDocument(
-        tempDocId,
-        fieldMappings,
-        record,
-        lineItemConfig
-      );
-
-      // Export to PDF
-      const pdfBlob = await googleDocsApiService.exportToPDF(tempDocId);
-
-      // Cleanup
-      await googleDocsApiService.deleteDocument(tempDocId);
-      this.tempDocuments.delete(tempDocId);
-
-      debugService.log('info', 'pdf', 'Google API generation completed successfully');
-      return pdfBlob;
-
-    } catch (error) {
-      debugService.log('error', 'pdf', 'Google API generation failed', {
-        error: error.message
-      });
-      throw error;
-    }
-  }
-
-  async generateViaBackendCopy(options) {
-    try {
-      debugService.log('info', 'pdf', 'Generating PDF via backend copy method');
-
-      const {
-        record,
-        fieldMappings,
-        lineItemConfig,
-        googleDocUrl
-      } = options;
-
-      // Step 1: Create backend copy from public link
-      debugService.log('info', 'pdf', 'Creating backend copy from public link');
-      const copyResult = await backendCopyService.createBackendCopy(googleDocUrl);
-      
-      this.backendCopies.add(copyResult.backendCopyId);
-
-      // Step 2: Populate the backend copy with Airtable data
-      debugService.log('info', 'pdf', 'Populating backend copy with data');
-      await this.populateBackendCopy(
-        copyResult.backendCopyId,
-        fieldMappings,
-        record,
-        lineItemConfig
-      );
-
-      // Step 3: Generate PDF from populated copy
-      debugService.log('info', 'pdf', 'Generating PDF from populated backend copy');
-      const pdfBlob = await this.exportBackendCopyToPdf(copyResult.backendCopyId);
-
-      // Step 4: Cleanup backend copy
-      debugService.log('info', 'pdf', 'Cleaning up backend copy');
-      await backendCopyService.cleanupBackendCopy(copyResult.backendCopyId);
-      this.backendCopies.delete(copyResult.backendCopyId);
-
-      debugService.log('info', 'pdf', 'Backend copy generation completed successfully');
-      return pdfBlob;
-
-    } catch (error) {
-      debugService.log('error', 'pdf', 'Backend copy generation failed', {
-        error: error.message
-      });
-      throw error;
     }
   }
 
@@ -354,9 +385,7 @@ export class EnhancedPdfService {
       return content.replace(/\{\{\s*line_items\s*\}\}/gi, tableHTML);
 
     } catch (error) {
-      debugService.log('error', 'pdf', 'Line items processing failed', {
-        error: error.message
-      });
+      debugService.log('error', 'pdf', 'Line items processing failed', { error: error.message });
       return content;
     }
   }
@@ -398,9 +427,8 @@ export class EnhancedPdfService {
 
       // Use HTML-to-PDF conversion
       const { generatePDF } = await import('./pdfService');
-      
       const htmlContent = this.prepareHtmlForPdf(tempDoc.content);
-      
+
       // Create a mock options object for the fallback PDF service
       const mockOptions = {
         templateContent: htmlContent,
@@ -426,59 +454,43 @@ export class EnhancedPdfService {
     return `
       <!DOCTYPE html>
       <html>
-      <head>
-        <meta charset="UTF-8">
-        <style>
-          body {
-            font-family: 'Sarabun', 'Noto Sans Thai', Arial, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 210mm;
-            margin: 0 auto;
-            padding: 20px;
-            font-size: 12px;
-          }
-          h1, h2, h3, h4, h5, h6 {
-            color: #2c3e50;
-            margin-bottom: 10px;
-          }
-          table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 15px 0;
-          }
-          th, td {
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: left;
-          }
-          th {
-            background-color: #f5f5f5;
-            font-weight: bold;
-          }
-        </style>
-      </head>
-      <body>
-        ${content}
-      </body>
+        <head>
+          <meta charset="UTF-8">
+          <style>
+            body {
+              font-family: 'Sarabun', 'Noto Sans Thai', Arial, sans-serif;
+              line-height: 1.6;
+              color: #333;
+              max-width: 210mm;
+              margin: 0 auto;
+              padding: 20px;
+              font-size: 12px;
+            }
+            h1, h2, h3, h4, h5, h6 {
+              color: #2c3e50;
+              margin-bottom: 10px;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin: 15px 0;
+            }
+            th, td {
+              border: 1px solid #ddd;
+              padding: 8px;
+              text-align: left;
+            }
+            th {
+              background-color: #f5f5f5;
+              font-weight: bold;
+            }
+          </style>
+        </head>
+        <body>
+          ${content}
+        </body>
       </html>
     `;
-  }
-
-  async generateViaFallback(options) {
-    try {
-      debugService.log('info', 'pdf', 'Generating PDF via fallback method');
-
-      // Use the existing PDF service as fallback
-      const { generatePDF } = await import('./pdfService');
-      return await generatePDF(options);
-
-    } catch (error) {
-      debugService.log('error', 'pdf', 'Fallback generation failed', {
-        error: error.message
-      });
-      throw error;
-    }
   }
 
   async isGoogleApiAvailable() {
@@ -496,6 +508,7 @@ export class EnhancedPdfService {
   async prepareDataForHtmlGeneration(backendCopyId, fieldMappings, record, lineItemConfig) {
     // Prepare data structure for HTML-based PDF generation
     debugService.log('debug', 'pdf', 'Preparing data for HTML generation', { backendCopyId });
+
     return {
       backendCopyId,
       fieldMappings,
@@ -545,9 +558,10 @@ export class EnhancedPdfService {
 
 export const enhancedPdfService = new EnhancedPdfService();
 
-// Main export function with automatic method selection
+// Main export function with automatic method selection and dynamic filename
 export const generatePDF = async (options) => {
-  return await enhancedPdfService.generatePDF(options);
+  const result = await enhancedPdfService.generatePDF(options);
+  return result;
 };
 
 // Cleanup function

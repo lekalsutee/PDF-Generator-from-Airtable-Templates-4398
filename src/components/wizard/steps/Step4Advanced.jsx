@@ -4,89 +4,158 @@ import SafeIcon from '../../../common/SafeIcon';
 import * as FiIcons from 'react-icons/fi';
 import { useApp } from '../../../context/AppContext';
 
-const { FiSettings, FiList, FiImage, FiToggleLeft, FiToggleRight, FiPlus, FiTrash2 } = FiIcons;
+const { FiSettings, FiList, FiImage, FiToggleLeft, FiToggleRight, FiPlus, FiTrash2, FiFileText, FiEye, FiEyeOff } = FiIcons;
 
 function Step4Advanced() {
   const { state, dispatch } = useApp();
   const [newLineItemField, setNewLineItemField] = useState({ template: '', airtable: '' });
+  const [showFilenamePreview, setShowFilenamePreview] = useState(false);
+
+  const currentLineItemConfig = state.wizardData.advanced.lineItemConfig || {
+    enabled: false,
+    tableName: '',
+    fields: []
+  };
+
+  const currentImageConfig = state.wizardData.advanced.imageConfig || {
+    width: 200,
+    height: 'auto'
+  };
+
+  const currentFilenameConfig = state.wizardData.advanced.filenameConfig || {
+    template: 'Document-{{record_id}}',
+    useTimestamp: true,
+    extension: '.pdf'
+  };
+
+  // Get available fields for filename generation
+  const availableFields = state.availableFieldTypes || [];
+  const templateFields = state.wizardData.design.templateFields || [];
+  
+  // Combine all available fields for filename
+  const filenameFields = [
+    ...availableFields.map(field => ({ name: field.name, type: 'airtable', displayName: field.name })),
+    ...templateFields.map(field => ({ name: field, type: 'template', displayName: field })),
+    { name: 'record_id', type: 'system', displayName: 'Record ID' },
+    { name: 'timestamp', type: 'system', displayName: 'Current Timestamp' },
+    { name: 'date', type: 'system', displayName: 'Current Date' },
+    { name: 'template_name', type: 'system', displayName: 'Template Name' }
+  ];
 
   const handleToggleLineItems = () => {
     const updatedConfig = {
-      ...state.wizardData.advanced.lineItemConfig,
-      enabled: !state.wizardData.advanced.lineItemConfig.enabled
+      ...currentLineItemConfig,
+      enabled: !currentLineItemConfig.enabled
     };
-
     dispatch({
       type: 'UPDATE_WIZARD_DATA',
       step: 'advanced',
-      payload: {
-        lineItemConfig: updatedConfig
-      }
+      payload: { lineItemConfig: updatedConfig }
     });
   };
 
   const handleLineItemTableChange = (tableName) => {
     const updatedConfig = {
-      ...state.wizardData.advanced.lineItemConfig,
+      ...currentLineItemConfig,
       tableName
     };
-
     dispatch({
       type: 'UPDATE_WIZARD_DATA',
       step: 'advanced',
-      payload: {
-        lineItemConfig: updatedConfig
-      }
+      payload: { lineItemConfig: updatedConfig }
     });
   };
 
   const handleAddLineItemField = () => {
     if (newLineItemField.template && newLineItemField.airtable) {
       const updatedConfig = {
-        ...state.wizardData.advanced.lineItemConfig,
-        fields: [...state.wizardData.advanced.lineItemConfig.fields, newLineItemField]
+        ...currentLineItemConfig,
+        fields: [...currentLineItemConfig.fields, newLineItemField]
       };
-
       dispatch({
         type: 'UPDATE_WIZARD_DATA',
         step: 'advanced',
-        payload: {
-          lineItemConfig: updatedConfig
-        }
+        payload: { lineItemConfig: updatedConfig }
       });
-
       setNewLineItemField({ template: '', airtable: '' });
     }
   };
 
   const handleRemoveLineItemField = (index) => {
     const updatedConfig = {
-      ...state.wizardData.advanced.lineItemConfig,
-      fields: state.wizardData.advanced.lineItemConfig.fields.filter((_, i) => i !== index)
+      ...currentLineItemConfig,
+      fields: currentLineItemConfig.fields.filter((_, i) => i !== index)
     };
-
     dispatch({
       type: 'UPDATE_WIZARD_DATA',
       step: 'advanced',
-      payload: {
-        lineItemConfig: updatedConfig
-      }
+      payload: { lineItemConfig: updatedConfig }
     });
   };
 
   const handleImageConfigChange = (field, value) => {
     const updatedConfig = {
-      ...state.wizardData.advanced.imageConfig,
+      ...currentImageConfig,
       [field]: value
     };
-
     dispatch({
       type: 'UPDATE_WIZARD_DATA',
       step: 'advanced',
-      payload: {
-        imageConfig: updatedConfig
-      }
+      payload: { imageConfig: updatedConfig }
     });
+  };
+
+  const handleFilenameConfigChange = (field, value) => {
+    const updatedConfig = {
+      ...currentFilenameConfig,
+      [field]: value
+    };
+    dispatch({
+      type: 'UPDATE_WIZARD_DATA',
+      step: 'advanced',
+      payload: { filenameConfig: updatedConfig }
+    });
+  };
+
+  const insertFieldIntoFilename = (fieldName) => {
+    const currentTemplate = currentFilenameConfig.template;
+    const placeholder = `{{${fieldName}}}`;
+    const updatedTemplate = currentTemplate + (currentTemplate.endsWith('-') ? '' : '-') + placeholder;
+    handleFilenameConfigChange('template', updatedTemplate);
+  };
+
+  const generateFilenamePreview = () => {
+    const sampleRecord = state.records.length > 0 ? state.records[0] : {};
+    let preview = currentFilenameConfig.template;
+
+    // Replace system fields
+    preview = preview.replace(/\{\{record_id\}\}/g, sampleRecord.id || 'rec123ABC');
+    preview = preview.replace(/\{\{timestamp\}\}/g, new Date().toISOString().slice(0, 19).replace(/:/g, '-'));
+    preview = preview.replace(/\{\{date\}\}/g, new Date().toISOString().slice(0, 10));
+    preview = preview.replace(/\{\{template_name\}\}/g, state.wizardData.connection.name || 'Template');
+
+    // Replace Airtable fields with sample data
+    availableFields.forEach(field => {
+      const fieldValue = sampleRecord.fields?.[field.name] || `Sample_${field.name}`;
+      const displayValue = Array.isArray(fieldValue) 
+        ? fieldValue.join('_') 
+        : String(fieldValue).replace(/[^a-zA-Z0-9-_]/g, '_');
+      preview = preview.replace(new RegExp(`\\{\\{${field.name}\\}\\}`, 'g'), displayValue);
+    });
+
+    // Add timestamp if enabled
+    if (currentFilenameConfig.useTimestamp) {
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+      preview = preview + '-' + timestamp;
+    }
+
+    // Add extension
+    preview = preview + currentFilenameConfig.extension;
+
+    // Clean up multiple dashes
+    preview = preview.replace(/-+/g, '-').replace(/^-|-$/g, '');
+
+    return preview;
   };
 
   return (
@@ -102,7 +171,145 @@ function Step4Advanced() {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Advanced Configuration</h1>
-            <p className="text-gray-600">Configure line items and image settings for your PDF templates</p>
+            <p className="text-gray-600">Configure filename patterns, line items, and image settings</p>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* Dynamic PDF Filename Configuration */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6, delay: 0.1 }}
+        className="bg-white rounded-xl shadow-sm border border-gray-200 p-8"
+      >
+        <div className="flex items-center space-x-3 mb-6">
+          <div className="bg-purple-100 p-2 rounded-lg">
+            <SafeIcon icon={FiFileText} className="w-6 h-6 text-purple-600" />
+          </div>
+          <div>
+            <h2 className="text-xl font-semibold text-gray-900">PDF Filename Configuration</h2>
+            <p className="text-gray-600">Define how generated PDF files should be named using data fields</p>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          {/* Filename Template */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Filename Template
+            </label>
+            <input
+              type="text"
+              value={currentFilenameConfig.template}
+              onChange={(e) => handleFilenameConfigChange('template', e.target.value)}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              placeholder="Document-{{customer_name}}-{{date}}"
+            />
+            <p className="text-sm text-gray-500 mt-1">
+              Use double curly braces to insert field values: {{field_name}}
+            </p>
+          </div>
+
+          {/* Available Fields for Filename */}
+          <div>
+            <h4 className="font-medium text-gray-900 mb-3">Available Fields</h4>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+              {filenameFields.map((field) => (
+                <button
+                  key={`${field.type}-${field.name}`}
+                  onClick={() => insertFieldIntoFilename(field.name)}
+                  className={`p-3 rounded-lg border-2 border-dashed transition-colors text-left ${
+                    field.type === 'airtable' 
+                      ? 'border-blue-200 hover:border-blue-400 hover:bg-blue-50'
+                      : field.type === 'template'
+                      ? 'border-green-200 hover:border-green-400 hover:bg-green-50'
+                      : 'border-purple-200 hover:border-purple-400 hover:bg-purple-50'
+                  }`}
+                >
+                  <div className="text-xs font-medium text-gray-500 mb-1">
+                    {field.type === 'airtable' ? 'Airtable' : field.type === 'template' ? 'Template' : 'System'}
+                  </div>
+                  <div className="text-sm font-medium text-gray-900">{field.displayName}</div>
+                  <code className="text-xs text-gray-600">{{'{{'}{field.name}{'}}'}}}</code>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Additional Options */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                <div>
+                  <h4 className="font-medium text-gray-900">Include Timestamp</h4>
+                  <p className="text-sm text-gray-600">Add generation timestamp to filename</p>
+                </div>
+                <button
+                  onClick={() => handleFilenameConfigChange('useTimestamp', !currentFilenameConfig.useTimestamp)}
+                  className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors ${
+                    currentFilenameConfig.useTimestamp 
+                      ? 'bg-primary-600 text-white' 
+                      : 'bg-gray-300 text-gray-700'
+                  }`}
+                >
+                  <SafeIcon 
+                    icon={currentFilenameConfig.useTimestamp ? FiToggleRight : FiToggleLeft} 
+                    className="w-5 h-5" 
+                  />
+                  <span>{currentFilenameConfig.useTimestamp ? 'Enabled' : 'Disabled'}</span>
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                File Extension
+              </label>
+              <select
+                value={currentFilenameConfig.extension}
+                onChange={(e) => handleFilenameConfigChange('extension', e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              >
+                <option value=".pdf">.pdf</option>
+                <option value=".PDF">.PDF</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Filename Preview */}
+          <div className="bg-blue-50 p-4 rounded-lg">
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="font-medium text-blue-900">Filename Preview</h4>
+              <button
+                onClick={() => setShowFilenamePreview(!showFilenamePreview)}
+                className="flex items-center space-x-2 text-blue-700 hover:text-blue-800"
+              >
+                <SafeIcon icon={showFilenamePreview ? FiEyeOff : FiEye} className="w-4 h-4" />
+                <span className="text-sm">{showFilenamePreview ? 'Hide' : 'Show'} Preview</span>
+              </button>
+            </div>
+            {showFilenamePreview && (
+              <div className="bg-white p-3 rounded border border-blue-200">
+                <code className="text-blue-800 font-medium break-all">
+                  {generateFilenamePreview()}
+                </code>
+                <p className="text-xs text-blue-600 mt-2">
+                  * Preview uses sample data from your first record
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Filename Guidelines */}
+          <div className="bg-yellow-50 p-4 rounded-lg">
+            <h4 className="font-medium text-yellow-900 mb-2">Filename Guidelines</h4>
+            <div className="text-sm text-yellow-700 space-y-1">
+              <p>• <strong>Invalid characters</strong> (/, \, :, *, ?, ", <, >, |) will be replaced with underscores</p>
+              <p>• <strong>Maximum length:</strong> 255 characters (including extension)</p>
+              <p>• <strong>Recommended format:</strong> Use descriptive names with field values</p>
+              <p>• <strong>Examples:</strong> Invoice-{{customer_name}}-{{invoice_number}}, Quote-{{quote_id}}-{{date}}</p>
+            </div>
           </div>
         </div>
       </motion.div>
@@ -111,7 +318,7 @@ function Step4Advanced() {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, delay: 0.1 }}
+        transition={{ duration: 0.6, delay: 0.2 }}
         className="bg-white rounded-xl shadow-sm border border-gray-200 p-8"
       >
         <div className="flex items-center space-x-3 mb-6">
@@ -135,20 +342,20 @@ function Step4Advanced() {
           <button
             onClick={handleToggleLineItems}
             className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors ${
-              state.wizardData.advanced.lineItemConfig.enabled
-                ? 'bg-primary-600 text-white'
+              currentLineItemConfig.enabled 
+                ? 'bg-primary-600 text-white' 
                 : 'bg-gray-300 text-gray-700'
             }`}
           >
             <SafeIcon 
-              icon={state.wizardData.advanced.lineItemConfig.enabled ? FiToggleRight : FiToggleLeft} 
+              icon={currentLineItemConfig.enabled ? FiToggleRight : FiToggleLeft} 
               className="w-5 h-5" 
             />
-            <span>{state.wizardData.advanced.lineItemConfig.enabled ? 'Enabled' : 'Disabled'}</span>
+            <span>{currentLineItemConfig.enabled ? 'Enabled' : 'Disabled'}</span>
           </button>
         </div>
 
-        {state.wizardData.advanced.lineItemConfig.enabled && (
+        {currentLineItemConfig.enabled && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
@@ -162,7 +369,7 @@ function Step4Advanced() {
               </label>
               <input
                 type="text"
-                value={state.wizardData.advanced.lineItemConfig.tableName}
+                value={currentLineItemConfig.tableName}
                 onChange={(e) => handleLineItemTableChange(e.target.value)}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 placeholder="Quotation Items"
@@ -212,11 +419,11 @@ function Step4Advanced() {
             </div>
 
             {/* Current Line Item Fields */}
-            {state.wizardData.advanced.lineItemConfig.fields.length > 0 && (
+            {currentLineItemConfig.fields.length > 0 && (
               <div>
                 <h4 className="font-medium text-gray-900 mb-3">Line Item Fields</h4>
                 <div className="space-y-3">
-                  {state.wizardData.advanced.lineItemConfig.fields.map((field, index) => (
+                  {currentLineItemConfig.fields.map((field, index) => (
                     <motion.div
                       key={index}
                       initial={{ opacity: 0, y: 10 }}
@@ -254,7 +461,7 @@ function Step4Advanced() {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, delay: 0.2 }}
+        transition={{ duration: 0.6, delay: 0.3 }}
         className="bg-white rounded-xl shadow-sm border border-gray-200 p-8"
       >
         <div className="flex items-center space-x-3 mb-6">
@@ -274,7 +481,7 @@ function Step4Advanced() {
             </label>
             <input
               type="number"
-              value={state.wizardData.advanced.imageConfig.width}
+              value={currentImageConfig.width}
               onChange={(e) => handleImageConfigChange('width', parseInt(e.target.value))}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
               placeholder="200"
@@ -291,7 +498,7 @@ function Step4Advanced() {
               Image Height
             </label>
             <select
-              value={state.wizardData.advanced.imageConfig.height}
+              value={currentImageConfig.height}
               onChange={(e) => handleImageConfigChange('height', e.target.value)}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
             >
@@ -307,8 +514,10 @@ function Step4Advanced() {
         <div className="mt-6 bg-blue-50 p-4 rounded-lg">
           <h4 className="font-medium text-blue-900 mb-2">Image Preview Settings</h4>
           <div className="text-sm text-blue-700 space-y-1">
-            <p>• Width: {state.wizardData.advanced.imageConfig.width}px</p>
-            <p>• Height: {state.wizardData.advanced.imageConfig.height === 'auto' ? 'Auto (maintains aspect ratio)' : `${state.wizardData.advanced.imageConfig.height}px`}</p>
+            <p>• Width: {currentImageConfig.width}px</p>
+            <p>• Height: {currentImageConfig.height === 'auto' 
+                ? 'Auto (maintains aspect ratio)' 
+                : `${currentImageConfig.height}px`}</p>
             <p>• Format: Images will be embedded directly in the PDF</p>
             <p>• Supported formats: PNG, JPG, JPEG, GIF</p>
           </div>
@@ -319,7 +528,7 @@ function Step4Advanced() {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, delay: 0.3 }}
+        transition={{ duration: 0.6, delay: 0.4 }}
         className="flex justify-between"
       >
         <button

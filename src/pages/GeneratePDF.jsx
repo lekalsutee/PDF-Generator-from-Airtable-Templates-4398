@@ -3,28 +3,45 @@ import { motion } from 'framer-motion';
 import SafeIcon from '../common/SafeIcon';
 import * as FiIcons from 'react-icons/fi';
 import { useApp } from '../context/AppContext';
-import { generatePDFFromDirectLink } from '../services/directLinkPdfService';
+import { generatePDF } from '../services/enhancedPdfService';
+import { dynamicFilenameService } from '../services/dynamicFilenameService';
 
-const { FiPlay, FiDownload, FiCheck, FiAlertTriangle, FiFileText } = FiIcons;
+const { FiPlay, FiDownload, FiCheck, FiAlertTriangle, FiFileText, FiFile, FiEye } = FiIcons;
 
 function GeneratePDF() {
   const { state } = useApp();
   const [selectedRecord, setSelectedRecord] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationStatus, setGenerationStatus] = useState(null);
-  const [pdfUrl, setPdfUrl] = useState(null);
+  const [pdfBlob, setPdfBlob] = useState(null);
+  const [generatedFilename, setGeneratedFilename] = useState('');
+  const [showFilenamePreview, setShowFilenamePreview] = useState(false);
 
   const handleGeneratePDF = async () => {
     if (!selectedRecord) return;
 
     setIsGenerating(true);
     setGenerationStatus(null);
-    setPdfUrl(null);
+    setPdfBlob(null);
+    setGeneratedFilename('');
 
     try {
       const record = state.records.find((r) => r.id === selectedRecord);
       
-      const pdfBlob = await generatePDFFromDirectLink({
+      // Get filename configuration
+      const filenameConfig = state.wizardData.advanced?.filenameConfig || {
+        template: 'Document-{{record_id}}',
+        useTimestamp: true,
+        extension: '.pdf'
+      };
+
+      // Get template info
+      const templateInfo = {
+        name: state.currentTemplate?.name || state.wizardData.connection?.name || 'Template',
+        id: state.currentTemplate?.id || 'unknown'
+      };
+
+      const options = {
         record,
         templateFields: state.wizardData.design.templateFields,
         fieldMappings: state.wizardData.mapping.fieldMappings,
@@ -32,11 +49,16 @@ function GeneratePDF() {
         imageConfig: state.wizardData.advanced.imageConfig,
         googleDocUrl: state.wizardData.design.googleDocUrl,
         templateId: state.currentTemplate?.id,
-      });
+        filenameConfig,
+        templateInfo
+      };
 
-      const url = URL.createObjectURL(pdfBlob);
-      setPdfUrl(url);
+      const result = await generatePDF(options);
+      
+      setPdfBlob(result.blob);
+      setGeneratedFilename(result.filename);
       setGenerationStatus('success');
+
     } catch (error) {
       setGenerationStatus('error');
       console.error('PDF generation error:', error);
@@ -46,14 +68,36 @@ function GeneratePDF() {
   };
 
   const handleDownload = () => {
-    if (pdfUrl) {
+    if (pdfBlob && generatedFilename) {
+      const url = URL.createObjectURL(pdfBlob);
       const link = document.createElement('a');
-      link.href = pdfUrl;
-      link.download = `document-${selectedRecord}.pdf`;
+      link.href = url;
+      link.download = generatedFilename;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      URL.revokeObjectURL(url);
     }
+  };
+
+  const generateFilenamePreview = () => {
+    if (!selectedRecord) return 'No record selected';
+    
+    const record = state.records.find((r) => r.id === selectedRecord);
+    if (!record) return 'Record not found';
+
+    const filenameConfig = state.wizardData.advanced?.filenameConfig || {
+      template: 'Document-{{record_id}}',
+      useTimestamp: true,
+      extension: '.pdf'
+    };
+
+    const templateInfo = {
+      name: state.currentTemplate?.name || 'Template',
+      id: state.currentTemplate?.id || 'unknown'
+    };
+
+    return dynamicFilenameService.generateFilename(filenameConfig, record, templateInfo);
   };
 
   const isSetupComplete = () => {
@@ -166,6 +210,32 @@ function GeneratePDF() {
                   })()}
                 </motion.div>
               )}
+
+              {/* Filename Preview */}
+              {selectedRecord && (
+                <div className="bg-blue-50 p-4 rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="font-medium text-blue-900">Generated Filename Preview</h4>
+                    <button
+                      onClick={() => setShowFilenamePreview(!showFilenamePreview)}
+                      className="flex items-center space-x-2 text-blue-700 hover:text-blue-800"
+                    >
+                      <SafeIcon icon={showFilenamePreview ? FiEye : FiFile} className="w-4 h-4" />
+                      <span className="text-sm">{showFilenamePreview ? 'Hide' : 'Show'} Preview</span>
+                    </button>
+                  </div>
+                  {showFilenamePreview && (
+                    <div className="bg-white p-3 rounded border border-blue-200">
+                      <code className="text-blue-800 font-medium break-all">
+                        {generateFilenamePreview()}
+                      </code>
+                      <p className="text-xs text-blue-600 mt-2">
+                        * This will be the actual filename when you download the PDF
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </motion.div>
 
@@ -182,7 +252,7 @@ function GeneratePDF() {
               </div>
               <div>
                 <h2 className="text-lg md:text-xl font-semibold text-gray-900">Generate PDF</h2>
-                <p className="text-sm md:text-base text-gray-600">Create your customized PDF document</p>
+                <p className="text-sm md:text-base text-gray-600">Create your customized PDF document with dynamic filename</p>
               </div>
             </div>
 
@@ -201,7 +271,7 @@ function GeneratePDF() {
                   <span>{isGenerating ? 'Generating...' : 'Generate PDF'}</span>
                 </button>
 
-                {pdfUrl && (
+                {pdfBlob && generatedFilename && (
                   <button
                     onClick={handleDownload}
                     className="flex items-center justify-center space-x-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors w-full sm:w-auto"
@@ -217,20 +287,28 @@ function GeneratePDF() {
                   initial={{ opacity: 0, scale: 0.8 }}
                   animate={{ opacity: 1, scale: 1 }}
                   className={`flex items-start space-x-2 px-4 py-3 rounded-lg ${
-                    generationStatus === 'success'
-                      ? 'bg-green-100 text-green-700'
+                    generationStatus === 'success' 
+                      ? 'bg-green-100 text-green-700' 
                       : 'bg-red-100 text-red-700'
                   }`}
                 >
-                  <SafeIcon
-                    icon={generationStatus === 'success' ? FiCheck : FiAlertTriangle}
-                    className="w-5 h-5 flex-shrink-0 mt-0.5"
+                  <SafeIcon 
+                    icon={generationStatus === 'success' ? FiCheck : FiAlertTriangle} 
+                    className="w-5 h-5 flex-shrink-0 mt-0.5" 
                   />
-                  <span className="font-medium">
-                    {generationStatus === 'success'
-                      ? 'PDF generated successfully!'
-                      : 'Failed to generate PDF. Please try again.'}
-                  </span>
+                  <div>
+                    <span className="font-medium">
+                      {generationStatus === 'success' 
+                        ? 'PDF generated successfully!' 
+                        : 'Failed to generate PDF. Please try again.'
+                      }
+                    </span>
+                    {generatedFilename && (
+                      <div className="text-sm mt-1">
+                        Filename: <code className="bg-green-200 px-1 rounded">{generatedFilename}</code>
+                      </div>
+                    )}
+                  </div>
                 </motion.div>
               )}
 
@@ -253,8 +331,18 @@ function GeneratePDF() {
                     </span>
                   </div>
                   <div>
+                    <span className="font-medium text-gray-600">Filename Template:</span>
+                    <span className="ml-2 text-gray-900 font-mono text-xs">
+                      {state.wizardData.advanced?.filenameConfig?.template || 'Document-{{record_id}}'}
+                    </span>
+                  </div>
+                  <div>
                     <span className="font-medium text-gray-600">Thai Support:</span>
                     <span className="ml-2 text-green-600">✓ Enabled</span>
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-600">Security:</span>
+                    <span className="ml-2 text-green-600">✓ Credentials Encrypted</span>
                   </div>
                 </div>
               </div>
